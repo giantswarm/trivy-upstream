@@ -17,7 +17,7 @@ var (
 
 const (
 	defaultSizeThreshold = int64(200) << 20 // 200MB
-	slowSizeThreshold    = int64(200) << 20 // 10KB
+	slowSizeThreshold    = int64(100) << 10 // 10KB
 )
 
 type WalkFunc func(filePath string, info os.FileInfo, opener analyzer.Opener) error
@@ -50,7 +50,6 @@ func newWalker(skipFiles, skipDirs []string, slow bool) walker {
 }
 
 func (w *walker) shouldSkipFile(filePath string) bool {
-	filePath = filepath.ToSlash(filePath)
 	filePath = strings.TrimLeft(filePath, "/")
 
 	// skip files
@@ -58,7 +57,6 @@ func (w *walker) shouldSkipFile(filePath string) bool {
 }
 
 func (w *walker) shouldSkipDir(dir string) bool {
-	dir = filepath.ToSlash(dir)
 	dir = strings.TrimLeft(dir, "/")
 
 	// Skip application dirs (relative path)

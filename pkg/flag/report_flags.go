@@ -26,7 +26,7 @@ var (
 		ConfigName: "format",
 		Shorthand:  "f",
 		Value:      report.FormatTable,
-		Usage:      "format (table, json, sarif, template, cyclonedx, spdx, spdx-json, github, cosign-vuln)",
+		Usage:      "format (" + strings.Join(report.SupportedFormats, ", ") + ")",
 	}
 	ReportFormatFlag = Flag{
 		Name:       "report",
@@ -89,7 +89,7 @@ var (
 		Name:       "compliance",
 		ConfigName: "scan.compliance",
 		Value:      "",
-		Usage:      "compliance report to generate (nsa)",
+		Usage:      "compliance report to generate",
 	}
 )
 
@@ -155,6 +155,10 @@ func (f *ReportFlagGroup) ToOptions(out io.Writer) (ReportOptions, error) {
 	listAllPkgs := getBool(f.ListAllPkgs)
 	output := getString(f.Output)
 
+	if format != "" && !slices.Contains(report.SupportedFormats, format) {
+		return ReportOptions{}, xerrors.Errorf("unknown format: %v", format)
+	}
+
 	if template != "" {
 		if format == "" {
 			log.Logger.Warn("'--template' is ignored because '--format template' is not specified. Use '--template' option with '--format template' option.")
@@ -215,17 +219,21 @@ func (f *ReportFlagGroup) ToOptions(out io.Writer) (ReportOptions, error) {
 	}, nil
 }
 
-func parseComplianceTypes(compliance interface{}) (string, error) {
-	complianceString, ok := compliance.(string)
-	if !ok || (len(complianceString) > 0 && !slices.Contains(types.Compliances, complianceString)) {
+func parseComplianceTypes(compliance string) (string, error) {
+	if len(compliance) > 0 && !slices.Contains(types.Compliances, compliance) && !strings.HasPrefix(compliance, "@") {
 		return "", xerrors.Errorf("unknown compliance : %v", compliance)
 	}
-	return complianceString, nil
+	return compliance, nil
 }
 
 func (f *ReportFlagGroup) forceListAllPkgs(format string, listAllPkgs, dependencyTree bool) bool {
 	if slices.Contains(report.SupportedSBOMFormats, format) && !listAllPkgs {
 		log.Logger.Debugf("%q automatically enables '--list-all-pkgs'.", report.SupportedSBOMFormats)
+		return true
+	}
+	// We need this flag to insert dependency locations into Sarif('Package' struct contains 'Locations')
+	if format == report.FormatSarif && !listAllPkgs {
+		log.Logger.Debugf("Sarif format automatically enables '--list-all-pkgs' to get locations")
 		return true
 	}
 	if dependencyTree && !listAllPkgs {
