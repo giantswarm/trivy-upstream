@@ -45,10 +45,21 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
+Return the image registry based on global values when possible.
+*/}}
+{{- define "trivy.imageRegistry" -}}
+{{- if ((.Values.global).image).registry -}}
+{{- .Values.global.image.registry -}}
+{{- else -}}
+{{- .Values.image.registry -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Return the proper imageRef as used by the container template spec.
 */}}
 {{- define "trivy.imageRef" -}}
-{{- $registryName := .Values.image.registry -}}
+{{- $registryName := include "trivy.imageRegistry" . -}}
 {{- $repositoryName := .Values.image.repository -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
 {{- printf "%s/%s:%s" $registryName $repositoryName $tag -}}
