@@ -10,6 +10,7 @@ import (
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	r "github.com/aquasecurity/trivy/pkg/rpc"
 	"github.com/aquasecurity/trivy/pkg/types"
+	xstrings "github.com/aquasecurity/trivy/pkg/x/strings"
 	rpc "github.com/aquasecurity/trivy/rpc/scanner"
 )
 
@@ -57,7 +58,10 @@ func NewScanner(scannerOptions ScannerOption, opts ...Option) Scanner {
 		opt(o)
 	}
 
-	return Scanner{customHeaders: scannerOptions.CustomHeaders, client: o.rpcClient}
+	return Scanner{
+		customHeaders: scannerOptions.CustomHeaders,
+		client:        o.rpcClient,
+	}
 }
 
 // Scan scans the image
@@ -79,9 +83,10 @@ func (s Scanner) Scan(ctx context.Context, target, artifactKey string, blobKeys 
 			BlobIds:    blobKeys,
 			Options: &rpc.ScanOptions{
 				VulnType:          opts.VulnType,
-				SecurityChecks:    opts.SecurityChecks,
+				Scanners:          xstrings.ToStringSlice(opts.Scanners),
 				ListAllPackages:   opts.ListAllPackages,
 				LicenseCategories: licenseCategories,
+				IncludeDevDeps:    opts.IncludeDevDeps,
 			},
 		})
 		return err

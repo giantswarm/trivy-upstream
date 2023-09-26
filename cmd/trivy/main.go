@@ -9,10 +9,8 @@ import (
 	"github.com/aquasecurity/trivy/pkg/commands"
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/plugin"
-)
 
-var (
-	version = "dev"
+	_ "modernc.org/sqlite" // sqlite driver for RPM DB and Java DB
 )
 
 func main() {
@@ -33,7 +31,7 @@ func run() error {
 		return nil
 	}
 
-	app := commands.NewApp(version)
+	app := commands.NewApp()
 	if err := app.Execute(); err != nil {
 		return err
 	}

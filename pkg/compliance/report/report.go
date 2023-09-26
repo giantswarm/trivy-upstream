@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	defsecTypes "github.com/aquasecurity/defsec/pkg/types"
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/compliance/spec"
 	"github.com/aquasecurity/trivy/pkg/types"
@@ -13,13 +14,10 @@ import (
 const (
 	allReport     = "all"
 	summaryReport = "summary"
-
-	tableFormat = "table"
-	jsonFormat  = "json"
 )
 
 type Option struct {
-	Format        string
+	Format        types.Format
 	Report        string
 	Output        io.Writer
 	Severities    []dbTypes.Severity
@@ -40,7 +38,7 @@ type ControlCheckResult struct {
 	ID            string
 	Name          string
 	Description   string
-	DefaultStatus spec.ControlStatus `json:",omitempty"`
+	DefaultStatus defsecTypes.ControlStatus `json:",omitempty"`
 	Severity      string
 	Results       types.Results
 }
@@ -68,10 +66,10 @@ type Writer interface {
 // Write writes the results in the give format
 func Write(report *ComplianceReport, option Option) error {
 	switch option.Format {
-	case jsonFormat:
+	case types.FormatJSON:
 		jwriter := JSONWriter{Output: option.Output, Report: option.Report}
 		return jwriter.Write(report)
-	case tableFormat:
+	case types.FormatTable:
 		if !report.empty() {
 			complianceWriter := &TableWriter{
 				Output:     option.Output,
@@ -94,7 +92,7 @@ func (r ComplianceReport) empty() bool {
 }
 
 // buildControlCheckResults create compliance results data
-func buildControlCheckResults(checksMap map[string]types.Results, controls []spec.Control) []*ControlCheckResult {
+func buildControlCheckResults(checksMap map[string]types.Results, controls []defsecTypes.Control) []*ControlCheckResult {
 	complianceResults := make([]*ControlCheckResult, 0)
 	for _, control := range controls {
 		var results types.Results
@@ -114,7 +112,7 @@ func buildControlCheckResults(checksMap map[string]types.Results, controls []spe
 }
 
 // buildComplianceReportResults create compliance results data
-func buildComplianceReportResults(checksMap map[string]types.Results, spec spec.Spec) *ComplianceReport {
+func buildComplianceReportResults(checksMap map[string]types.Results, spec defsecTypes.Spec) *ComplianceReport {
 	controlCheckResult := buildControlCheckResults(checksMap, spec.Controls)
 	return &ComplianceReport{
 		ID:               spec.ID,

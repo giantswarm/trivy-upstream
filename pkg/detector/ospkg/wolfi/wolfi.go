@@ -81,7 +81,7 @@ func (s *Scanner) Detect(_ string, _ *ftypes.Repository, pkgs []ftypes.Package) 
 				InstalledVersion: installed,
 				FixedVersion:     adv.FixedVersion,
 				Layer:            pkg.Layer,
-				Ref:              pkg.Ref,
+				PkgRef:           pkg.Ref,
 				Custom:           adv.Custom,
 				DataSource:       adv.DataSource,
 			})
@@ -103,7 +103,7 @@ func (s *Scanner) isVulnerable(installedVersion version.Version, adv dbTypes.Adv
 }
 
 // IsSupportedVersion checks the OSFamily can be scanned using Wolfi scanner
-func (s *Scanner) IsSupportedVersion(_, _ string) bool {
+func (s *Scanner) IsSupportedVersion(_ ftypes.OSType, _ string) bool {
 	// Wolfi doesn't have versions, so there is no case where a given input yields a
 	// result of an unsupported Wolfi version.
 

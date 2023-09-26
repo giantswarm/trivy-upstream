@@ -26,8 +26,17 @@ jobs:
       packages: write # For GHCR
       contents: read  # Not required for public repositories, but for clarity
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v8
+        with:
+          root-reserve-mb: 35840 # The Go cache (`~/.cache/go-build` and `~/go/pkg`) requires a lot of storage space.
+          remove-android: 'true'
+          remove-docker-images: 'true'
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+
       - name: Cosign install
-        uses: sigstore/cosign-installer@9becc617647dfa20ae7b1151972e9b3a2c338a2b
+        uses: sigstore/cosign-installer@4a861528be5e691840a69536975ada1d4c30349d
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -60,34 +69,47 @@ jobs:
           password: ${{ secrets.ECR_SECRET_ACCESS_KEY }}
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.6.0
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
 
       - name: Generate SBOM
-        uses: CycloneDX/gh-gomod-generate-sbom@v1
+        uses: CycloneDX/gh-gomod-generate-sbom@v2
         with:
           args: mod -licenses -json -output bom.json
           version: ^v1
 
+      - name: "save gpg key"
+        env:
+          GPG_KEY: ${{ secrets.GPG_KEY }}
+        run: |
+          echo "$GPG_KEY" > gpg.key
+
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
-          version: v1.4.1
+          version: v1.20.0
           args: release -f=${{ inputs.goreleaser_config}} ${{ inputs.goreleaser_options}}
         env:
           GITHUB_TOKEN: ${{ secrets.ORG_REPO_TOKEN }}
+          NFPM_DEFAULT_RPM_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_FILE: "gpg.key"
 
-      ## push images to registries
-      ## only for canary build
+      - name: "remove gpg key"
+        run: |
+          rm gpg.key
+
+      # Push images to registries (only for canary build)
+      # The custom Dockerfile.canary is necessary
+      # because GoReleaser Free doesn't support pushing images with the `--snapshot` flag.
       - name: Build and push
         if: ${{ inputs.goreleaser_config == 'goreleaser-canary.yml' }}
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           platforms: linux/amd64, linux/arm64
           file: ./Dockerfile.canary # path to Dockerfile
@@ -99,7 +121,7 @@ jobs:
             public.ecr.aws/aquasecurity/trivy:canary
 
       - name: Cache Trivy binaries
-        uses: actions/cache@v3.2.2
+        uses: actions/cache@v3.3.1
         with:
           path: dist/
           # use 'github.sha' to create a unique cache folder for each run.

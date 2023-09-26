@@ -10,19 +10,18 @@ Pro tip: The output of the commands will be even more interesting if you have so
 
 Trivy K8s is great to get an overview of all the vulnerabilities and misconfiguration issues or to scan specific workloads that are running in your cluster. You would want to use the Trivy K8s command either on your own local cluster or in your CI/CD pipeline post deployments.  
 
-The Trivy K8s command is part of the Trivy CLI: 
-
+The `trivy k8s` command is part of the Trivy CLI. 
 
 With the following command, we can scan our entire Kubernetes cluster for vulnerabilities and get a summary of the scan: 
 
 ```
-trivy k8s --report=summary 
+trivy k8s --report=summary cluster
 ```
 
 To get detailed information for all your resources, just replace ‘summary’ with ‘all’: 
 
 ```
-trivy k8s --report=all 
+trivy k8s --report=all cluster
 ```
 
 However, we recommend displaying all information only in case you scan a specific namespace or resource since you can get overwhelmed with additional details. 
@@ -30,19 +29,19 @@ However, we recommend displaying all information only in case you scan a specifi
 Furthermore, we can specify the namespace that Trivy is supposed to scan to focus on specific resources in the scan result: 
 
 ```
-trivy k8s -n kube-system --report=summary 
+trivy k8s -n kube-system --report=summary cluster
 ```
 
 Again, if you’d like to receive additional details, use the ‘--report=all’ flag: 
 
 ```
-trivy k8s -n kube-system --report=all 
+trivy k8s -n kube-system --report=all cluster
 ```
 
 Like with scanning for vulnerabilities, we can also filter in-cluster security issues by severity of the vulnerabilities: 
 
 ```
-trivy k8s --severity=CRITICAL --report=summary 
+trivy k8s --severity=CRITICAL --report=summary cluster
 ```
 
 Note that you can use any of the Trivy flags on the Trivy K8s command. 
@@ -50,7 +49,7 @@ Note that you can use any of the Trivy flags on the Trivy K8s command.
 With the Trivy K8s command, you can also scan specific workloads that are running within your cluster, such as our deployment: 
 
 ```
-trivy k8s –n app --report=summary deployments/react-application
+trivy k8s --namespace  app --report=summary deployments/react-application
 ```
 
 ## Trivy Operator 
@@ -68,52 +67,13 @@ This has several benefits:
 - The CRDs can be both machine and human-readable depending on which applications consume the CRDs. This allows for more versatile applications of the Trivy operator. 
 
  
-There are several ways that you can install the Trivy Operator in your cluster. In this guide, we’re going to use the Helm installation based on the [following documentation.](../../docs/kubernetes/operator/index.md)
+There are several ways that you can install the Trivy Operator in your cluster. In this guide, we’re going to use the Helm installation based on the [following documentation.](../../docs/target/kubernetes.md#trivy-operator)
 
-Make sure that you have the [Helm CLI installed.](https://helm.sh/docs/intro/install/)
-Next, run the following commands.
+Please follow the Trivy Operator documentation for further information on:
 
-First, we are going to add the Aqua Security Helm repository to our Helm repository list:
-```
-helm repo add aqua https://aquasecurity.github.io/helm-charts/
-```
+- [Installation of the Trivy Operator](https://aquasecurity.github.io/trivy-operator/latest/getting-started/installation/)
+- [Getting started guide](https://aquasecurity.github.io/trivy-operator/latest/getting-started/quick-start/)
 
-Then, we will update all of our Helm repositories. Even if you have just added a new repository to your existing charts, this is generally good practice to have access to the latest changes:
-```
-helm repo update
-```
-
-Lastly, we can install the Trivy operator Helm Chart to our cluster:
-```
-helm install trivy-operator aqua/trivy-operator \
-   --namespace trivy-system \
-   --create-namespace \
-   --set="trivy.ignoreUnfixed=true" \
-   --version v0.0.3
-```
-
-You can make sure that the operator is installed correctly via the following command: 
-```
-kubectl get deployment -n trivy-system 
-```
-
-Trivy will automatically start scanning your Kubernetes resources. 
-For instance, you can view vulnerability reports with the following command: 
-
-```
-kubectl get vulnerabilityreports --all-namespaces -o wide 
-```
-
-And then you can access the details of a security scan: 
-```
-kubectl describe  vulnerabilityreports <name of one of the above reports> 
-```
-
-The same process can be applied to access Configauditreports: 
-
-```
-kubectl get configauditreports --all-namespaces -o wide 
-```
 
 
  

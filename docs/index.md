@@ -35,6 +35,8 @@ Scanners (what Trivy can find there):
 - Sensitive information and secrets
 - Software licenses
 
+Trivy supports most popular programming languages, operating systems, and platforms. For a complete list, see the [Scanning Coverage] page.
+
 To learn more, go to the [Trivy homepage][homepage] for feature highlights, or to the [Documentation site][Docs] for detailed information.
 
 ## Quick Start
@@ -58,7 +60,7 @@ Trivy is integrated with many popular platforms and applications. The complete l
 ### General usage
 
 ```bash
-trivy <target> [--security-checks <scanner1,scanner2>] <subject>
+trivy <target> [--scanners <scanner1,scanner2>] <subject>
 ```
 
 Examples:
@@ -80,7 +82,7 @@ trivy image python:3.4-alpine
 </details>
 
 ```bash
-trivy fs --security-checks vuln,secret,config myproject/
+trivy fs --scanners vuln,secret,config myproject/
 ```
 
 <details>
@@ -109,11 +111,12 @@ trivy k8s --report summary cluster
 
 </details>
 
-## FAQ
+# Want more? Check out Aqua
 
-### How to pronounce the name "Trivy"?
-
-`tri` is pronounced like **tri**gger, `vy` is pronounced like en**vy**.
+If you liked Trivy, you will love Aqua which builds on top of Trivy to provide even more enhanced capabilities for a complete security management offering.  
+You can find a high level comparison table specific to Trivy users [here](https://github.com/aquasecurity/resources/blob/main/trivy-aqua.md).  
+In addition check out the <https://aquasec.com> website for more information about our products and services.
+If you'd like to contact Aqua or request a demo, please use this form: <https://www.aquasec.com/demo>
 
 ---
 
@@ -124,6 +127,7 @@ Contact us about any matter by opening a GitHub Discussion [here][discussions]
 [Ecosystem]: ./ecosystem/index.md
 [Installation]: getting-started/installation.md
 [pronunciation]: #how-to-pronounce-the-name-trivy
+[Scanning Coverage]: ./docs/coverage/index.md
 
 [aquasec]: https://aquasec.com
 [oss]: https://www.aquasec.com/products/open-source-projects/

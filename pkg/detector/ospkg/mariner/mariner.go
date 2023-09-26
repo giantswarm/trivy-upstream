@@ -45,15 +45,14 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 			return nil, xerrors.Errorf("failed to get CBL-Mariner advisories: %w", err)
 		}
 
-		installed := utils.FormatSrcVersion(pkg)
-		installedVersion := version.NewVersion(installed)
+		sourceVersion := version.NewVersion(utils.FormatSrcVersion(pkg))
 
 		for _, adv := range advisories {
 			vuln := types.DetectedVulnerability{
 				VulnerabilityID:  adv.VulnerabilityID,
 				PkgName:          pkg.Name,
-				InstalledVersion: installed,
-				Ref:              pkg.Ref,
+				InstalledVersion: utils.FormatVersion(pkg),
+				PkgRef:           pkg.Ref,
 				Layer:            pkg.Layer,
 				DataSource:       adv.DataSource,
 			}
@@ -66,7 +65,7 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 
 			// Patched vulnerabilities
 			fixedVersion := version.NewVersion(adv.FixedVersion)
-			if installedVersion.LessThan(fixedVersion) {
+			if sourceVersion.LessThan(fixedVersion) {
 				vuln.FixedVersion = fixedVersion.String()
 				vulns = append(vulns, vuln)
 			}
@@ -77,7 +76,7 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 }
 
 // IsSupportedVersion checks the OS version can be scanned using CBL-Mariner scanner
-func (s *Scanner) IsSupportedVersion(osFamily, osVer string) bool {
+func (s *Scanner) IsSupportedVersion(osFamily ftypes.OSType, osVer string) bool {
 	// EOL is not in public at the moment.
 	return true
 }

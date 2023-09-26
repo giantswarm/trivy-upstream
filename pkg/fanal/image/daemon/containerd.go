@@ -15,7 +15,6 @@ import (
 	"github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/reference/docker"
 	refdocker "github.com/containerd/containerd/reference/docker"
 	api "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -25,6 +24,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
+
+	"github.com/aquasecurity/trivy/pkg/fanal/types"
 )
 
 const (
@@ -51,14 +52,21 @@ func (n familiarNamed) String() string {
 	return string(n)
 }
 
-func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
+func imageWriter(client *containerd.Client, img containerd.Image, platform types.Platform) imageSave {
 	return func(ctx context.Context, ref []string) (io.ReadCloser, error) {
 		if len(ref) < 1 {
 			return nil, xerrors.New("no image reference")
 		}
 		imgOpts := archive.WithImage(client.ImageService(), ref[0])
 		manifestOpts := archive.WithManifest(img.Target())
-		platOpts := archive.WithPlatform(platforms.DefaultStrict())
+
+		var platformMatchComparer platforms.MatchComparer
+		if platform.Platform == nil {
+			platformMatchComparer = platforms.DefaultStrict()
+		} else {
+			platformMatchComparer = img.Platform()
+		}
+		platOpts := archive.WithPlatform(platformMatchComparer)
 		pr, pw := io.Pipe()
 		go func() {
 			pw.CloseWithError(archive.Export(ctx, client.ContentStore(), pw, imgOpts, manifestOpts, platOpts))
@@ -68,7 +76,7 @@ func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
 }
 
 // ContainerdImage implements v1.Image
-func ContainerdImage(ctx context.Context, imageName string) (Image, func(), error) {
+func ContainerdImage(ctx context.Context, imageName string, opts types.ImageOptions) (Image, func(), error) {
 	cleanup := func() {}
 
 	addr := os.Getenv("CONTAINERD_ADDRESS")
@@ -86,7 +94,17 @@ func ContainerdImage(ctx context.Context, imageName string) (Image, func(), erro
 		return nil, cleanup, err
 	}
 
-	client, err := containerd.New(addr)
+	options := []containerd.ClientOpt{}
+	if opts.RegistryOptions.Platform.Platform != nil {
+		ociPlatform, err := platforms.Parse(opts.RegistryOptions.Platform.String())
+		if err != nil {
+			return nil, cleanup, err
+		}
+
+		options = append(options, containerd.WithDefaultPlatform(platforms.OnlyStrict(ociPlatform)))
+	}
+
+	client, err := containerd.New(addr, options...)
 	if err != nil {
 		return nil, cleanup, xerrors.Errorf("failed to initialize a containerd client: %w", err)
 	}
@@ -122,11 +140,11 @@ func ContainerdImage(ctx context.Context, imageName string) (Image, func(), erro
 
 	insp, history, ref, err := inspect(ctx, img, ref)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("inspect error: %w", err)
+		return nil, cleanup, xerrors.Errorf("inspect error: %w", err)
 	}
 
 	return &image{
-		opener:  imageOpener(ctx, ref.String(), f, imageWriter(client, img)),
+		opener:  imageOpener(ctx, ref.String(), f, imageWriter(client, img, opts.RegistryOptions.Platform)),
 		inspect: insp,
 		history: history,
 	}, cleanup, nil
@@ -193,7 +211,7 @@ func readImageConfig(ctx context.Context, img containerd.Image) (ocispec.Image, 
 }
 
 // ported from https://github.com/containerd/nerdctl/blob/d110fea18018f13c3f798fa6565e482f3ff03591/pkg/inspecttypes/dockercompat/dockercompat.go#L279-L321
-func inspect(ctx context.Context, img containerd.Image, ref docker.Reference) (api.ImageInspect, []v1.History, refdocker.Reference, error) {
+func inspect(ctx context.Context, img containerd.Image, ref refdocker.Reference) (api.ImageInspect, []v1.History, refdocker.Reference, error) {
 	if _, ok := ref.(refdocker.Digested); ok {
 		ref = familiarNamed(img.Name())
 	}
@@ -204,7 +222,7 @@ func inspect(ctx context.Context, img containerd.Image, ref docker.Reference) (a
 	}
 
 	var repository string
-	if n, isNamed := ref.(docker.Named); isNamed {
+	if n, isNamed := ref.(refdocker.Named); isNamed {
 		repository = refdocker.FamiliarName(n)
 	}
 
@@ -234,12 +252,17 @@ func inspect(ctx context.Context, img containerd.Image, ref docker.Reference) (a
 		portSet[nat.Port(k)] = struct{}{}
 	}
 
+	created := ""
+	if lastHistory.Created != nil {
+		created = lastHistory.Created.Format(time.RFC3339Nano)
+	}
+
 	return api.ImageInspect{
 		ID:          imgConfigDesc.Digest.String(),
 		RepoTags:    []string{fmt.Sprintf("%s:%s", repository, tag)},
 		RepoDigests: []string{fmt.Sprintf("%s@%s", repository, img.Target().Digest)},
 		Comment:     lastHistory.Comment,
-		Created:     lastHistory.Created.Format(time.RFC3339Nano),
+		Created:     created,
 		Author:      lastHistory.Author,
 		Config: &container.Config{
 			User:         imgConfig.Config.User,

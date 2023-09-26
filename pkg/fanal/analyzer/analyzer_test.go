@@ -2,7 +2,6 @@ package analyzer_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -15,45 +14,21 @@ import (
 
 	dio "github.com/aquasecurity/go-dep-parser/pkg/io"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	aos "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/aquasecurity/trivy/pkg/javadb"
+	"github.com/aquasecurity/trivy/pkg/mapfs"
 
-	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/command/apk"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/imgconf/apk"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/java/jar"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/python/poetry"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/ruby/bundler"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os/alpine"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os/ubuntu"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/pkg/apk"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/repo/apk"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/handler/all"
+	_ "modernc.org/sqlite"
 )
-
-type mockConfigAnalyzer struct{}
-
-func (mockConfigAnalyzer) Required(targetOS types.OS) bool {
-	return targetOS.Family == "alpine"
-}
-
-func (mockConfigAnalyzer) Analyze(targetOS types.OS, configBlob []byte) (types.Packages, error) {
-	if string(configBlob) != `foo` {
-		return nil, errors.New("error")
-	}
-	return []types.Package{
-		{Name: "musl", Version: "1.1.24-r2"},
-	}, nil
-}
-
-func (mockConfigAnalyzer) Type() analyzer.Type {
-	return analyzer.Type("test")
-}
-
-func (mockConfigAnalyzer) Version() int {
-	return 1
-}
-
-func TestMain(m *testing.M) {
-	analyzer.RegisterConfigAnalyzer(mockConfigAnalyzer{})
-	os.Exit(m.Run())
-}
 
 func TestAnalysisResult_Merge(t *testing.T) {
 	type fields struct {
@@ -75,14 +50,17 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			name: "happy path",
 			fields: fields{
 				OS: types.OS{
-					Family: aos.Debian,
+					Family: types.Debian,
 					Name:   "9.8",
 				},
 				PackageInfos: []types.PackageInfo{
 					{
 						FilePath: "var/lib/dpkg/status.d/libc",
-						Packages: []types.Package{
-							{Name: "libc", Version: "1.2.3"},
+						Packages: types.Packages{
+							{
+								Name:    "libc",
+								Version: "1.2.3",
+							},
 						},
 					},
 				},
@@ -90,7 +68,7 @@ func TestAnalysisResult_Merge(t *testing.T) {
 					{
 						Type:     "bundler",
 						FilePath: "app/Gemfile.lock",
-						Libraries: []types.Package{
+						Libraries: types.Packages{
 							{
 								Name:    "rails",
 								Version: "5.0.0",
@@ -104,8 +82,11 @@ func TestAnalysisResult_Merge(t *testing.T) {
 					PackageInfos: []types.PackageInfo{
 						{
 							FilePath: "var/lib/dpkg/status.d/openssl",
-							Packages: []types.Package{
-								{Name: "openssl", Version: "1.1.1"},
+							Packages: types.Packages{
+								{
+									Name:    "openssl",
+									Version: "1.1.1",
+								},
 							},
 						},
 					},
@@ -113,7 +94,7 @@ func TestAnalysisResult_Merge(t *testing.T) {
 						{
 							Type:     "bundler",
 							FilePath: "app2/Gemfile.lock",
-							Libraries: []types.Package{
+							Libraries: types.Packages{
 								{
 									Name:    "nokogiri",
 									Version: "1.0.0",
@@ -125,20 +106,26 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family: aos.Debian,
+					Family: types.Debian,
 					Name:   "9.8",
 				},
 				PackageInfos: []types.PackageInfo{
 					{
 						FilePath: "var/lib/dpkg/status.d/libc",
-						Packages: []types.Package{
-							{Name: "libc", Version: "1.2.3"},
+						Packages: types.Packages{
+							{
+								Name:    "libc",
+								Version: "1.2.3",
+							},
 						},
 					},
 					{
 						FilePath: "var/lib/dpkg/status.d/openssl",
-						Packages: []types.Package{
-							{Name: "openssl", Version: "1.1.1"},
+						Packages: types.Packages{
+							{
+								Name:    "openssl",
+								Version: "1.1.1",
+							},
 						},
 					},
 				},
@@ -146,7 +133,7 @@ func TestAnalysisResult_Merge(t *testing.T) {
 					{
 						Type:     "bundler",
 						FilePath: "app/Gemfile.lock",
-						Libraries: []types.Package{
+						Libraries: types.Packages{
 							{
 								Name:    "rails",
 								Version: "5.0.0",
@@ -156,7 +143,7 @@ func TestAnalysisResult_Merge(t *testing.T) {
 					{
 						Type:     "bundler",
 						FilePath: "app2/Gemfile.lock",
-						Libraries: []types.Package{
+						Libraries: types.Packages{
 							{
 								Name:    "nokogiri",
 								Version: "1.0.0",
@@ -170,21 +157,21 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			name: "redhat must be replaced with oracle",
 			fields: fields{
 				OS: types.OS{
-					Family: aos.RedHat, // this must be overwritten
+					Family: types.RedHat, // this must be overwritten
 					Name:   "8.0",
 				},
 			},
 			args: args{
 				new: &analyzer.AnalysisResult{
 					OS: types.OS{
-						Family: aos.Oracle,
+						Family: types.Oracle,
 						Name:   "8.0",
 					},
 				},
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family: aos.Oracle,
+					Family: types.Oracle,
 					Name:   "8.0",
 				},
 			},
@@ -193,21 +180,21 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			name: "debian must be replaced with ubuntu",
 			fields: fields{
 				OS: types.OS{
-					Family: aos.Debian, // this must be overwritten
+					Family: types.Debian, // this must be overwritten
 					Name:   "9.0",
 				},
 			},
 			args: args{
 				new: &analyzer.AnalysisResult{
 					OS: types.OS{
-						Family: aos.Ubuntu,
+						Family: types.Ubuntu,
 						Name:   "18.04",
 					},
 				},
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family: aos.Ubuntu,
+					Family: types.Ubuntu,
 					Name:   "18.04",
 				},
 			},
@@ -217,21 +204,21 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			fields: fields{
 				// This must be overwritten
 				OS: types.OS{
-					Family: aos.Ubuntu,
+					Family: types.Ubuntu,
 					Name:   "16.04",
 				},
 			},
 			args: args{
 				new: &analyzer.AnalysisResult{
 					OS: types.OS{
-						Family:   aos.Ubuntu,
+						Family:   types.Ubuntu,
 						Extended: true,
 					},
 				},
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family:   aos.Ubuntu,
+					Family:   types.Ubuntu,
 					Name:     "16.04",
 					Extended: true,
 				},
@@ -241,25 +228,25 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			name: "alpine OS needs to be extended with apk repositories",
 			fields: fields{
 				OS: types.OS{
-					Family: aos.Alpine,
+					Family: types.Alpine,
 					Name:   "3.15.3",
 				},
 			},
 			args: args{
 				new: &analyzer.AnalysisResult{
 					Repository: &types.Repository{
-						Family:  aos.Alpine,
+						Family:  types.Alpine,
 						Release: "edge",
 					},
 				},
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family: aos.Alpine,
+					Family: types.Alpine,
 					Name:   "3.15.3",
 				},
 				Repository: &types.Repository{
-					Family:  aos.Alpine,
+					Family:  types.Alpine,
 					Release: "edge",
 				},
 			},
@@ -268,21 +255,21 @@ func TestAnalysisResult_Merge(t *testing.T) {
 			name: "alpine must not be replaced with oracle",
 			fields: fields{
 				OS: types.OS{
-					Family: aos.Alpine, // this must not be overwritten
+					Family: types.Alpine, // this must not be overwritten
 					Name:   "3.11",
 				},
 			},
 			args: args{
 				new: &analyzer.AnalysisResult{
 					OS: types.OS{
-						Family: aos.Oracle,
+						Family: types.Oracle,
 						Name:   "8.0",
 					},
 				},
 			},
 			want: analyzer.AnalysisResult{
 				OS: types.OS{
-					Family: aos.Alpine, // this must not be overwritten
+					Family: types.Alpine, // this must not be overwritten
 					Name:   "3.11",
 				},
 			},
@@ -301,7 +288,7 @@ func TestAnalysisResult_Merge(t *testing.T) {
 	}
 }
 
-func TestAnalyzeFile(t *testing.T) {
+func TestAnalyzerGroup_AnalyzeFile(t *testing.T) {
 	type args struct {
 		filePath          string
 		testFilePath      string
@@ -346,7 +333,7 @@ func TestAnalyzeFile(t *testing.T) {
 				PackageInfos: []types.PackageInfo{
 					{
 						FilePath: "/lib/apk/db/installed",
-						Packages: []types.Package{
+						Packages: types.Packages{
 							{
 								ID:         "musl@1.1.24-r2",
 								Name:       "musl",
@@ -354,6 +341,8 @@ func TestAnalyzeFile(t *testing.T) {
 								SrcName:    "musl",
 								SrcVersion: "1.1.24-r2",
 								Licenses:   []string{"MIT"},
+								Arch:       "x86_64",
+								Digest:     "sha1:cb2316a189ebee5282c4a9bd98794cc2477a74c6",
 							},
 						},
 					},
@@ -384,10 +373,33 @@ func TestAnalyzeFile(t *testing.T) {
 					{
 						Type:     "bundler",
 						FilePath: "/app/Gemfile.lock",
-						Libraries: []types.Package{
+						Libraries: types.Packages{
 							{
-								Name:    "actioncable",
-								Version: "5.2.3",
+								ID:       "actioncable@5.2.3",
+								Name:     "actioncable",
+								Version:  "5.2.3",
+								Indirect: false,
+								DependsOn: []string{
+									"actionpack@5.2.3",
+								},
+								Locations: []types.Location{
+									{
+										StartLine: 4,
+										EndLine:   4,
+									},
+								},
+							},
+							{
+								ID:       "actionpack@5.2.3",
+								Name:     "actionpack",
+								Version:  "5.2.3",
+								Indirect: true,
+								Locations: []types.Location{
+									{
+										StartLine: 6,
+										EndLine:   6,
+									},
+								},
 							},
 						},
 					},
@@ -422,10 +434,33 @@ func TestAnalyzeFile(t *testing.T) {
 					{
 						Type:     "bundler",
 						FilePath: "/app/Gemfile-dev.lock",
-						Libraries: []types.Package{
+						Libraries: types.Packages{
 							{
-								Name:    "actioncable",
-								Version: "5.2.3",
+								ID:       "actioncable@5.2.3",
+								Name:     "actioncable",
+								Version:  "5.2.3",
+								Indirect: false,
+								DependsOn: []string{
+									"actionpack@5.2.3",
+								},
+								Locations: []types.Location{
+									{
+										StartLine: 4,
+										EndLine:   4,
+									},
+								},
+							},
+							{
+								ID:       "actionpack@5.2.3",
+								Name:     "actionpack",
+								Version:  "5.2.3",
+								Indirect: true,
+								Locations: []types.Location{
+									{
+										StartLine: 6,
+										EndLine:   6,
+									},
+								},
 							},
 						},
 					},
@@ -516,89 +551,122 @@ func TestAnalyzeFile(t *testing.T) {
 	}
 }
 
-func TestAnalyzeConfig(t *testing.T) {
-
-	type args struct {
-		targetOS          types.OS
-		configBlob        []byte
-		disabledAnalyzers []analyzer.Type
-		filePatterns      []string
-	}
+func TestAnalyzerGroup_PostAnalyze(t *testing.T) {
 	tests := []struct {
-		name string
-		args args
-		want []types.Package
+		name         string
+		dir          string
+		analyzerType analyzer.Type
+		want         *analyzer.AnalysisResult
 	}{
 		{
-			name: "happy path",
-			args: args{
-				targetOS: types.OS{
-					Family: "alpine",
-					Name:   "3.11.6",
+			name:         "jars with invalid jar",
+			dir:          "testdata/post-apps/jar/",
+			analyzerType: analyzer.TypeJar,
+			want: &analyzer.AnalysisResult{
+				Applications: []types.Application{
+					{
+						Type:     types.Jar,
+						FilePath: "testdata/post-apps/jar/jackson-annotations-2.15.0-rc2.jar",
+						Libraries: types.Packages{
+							{
+								Name:     "com.fasterxml.jackson.core:jackson-annotations",
+								Version:  "2.15.0-rc2",
+								FilePath: "testdata/post-apps/jar/jackson-annotations-2.15.0-rc2.jar",
+							},
+						},
+					},
 				},
-				configBlob: []byte("foo"),
-			},
-			want: []types.Package{
-				{Name: "musl", Version: "1.1.24-r2"},
-			},
-		},
-		{
-			name: "non-target OS",
-			args: args{
-				targetOS: types.OS{
-					Family: "debian",
-					Name:   "9.2",
-				},
-				configBlob: []byte("foo"),
 			},
 		},
 		{
-			name: "Analyze returns an error",
-			args: args{
-				targetOS: types.OS{
-					Family: "alpine",
-					Name:   "3.11.6",
+			name:         "poetry files with invalid file",
+			dir:          "testdata/post-apps/poetry/",
+			analyzerType: analyzer.TypePoetry,
+			want: &analyzer.AnalysisResult{
+				Applications: []types.Application{
+					{
+						Type:     types.Poetry,
+						FilePath: "testdata/post-apps/poetry/happy/poetry.lock",
+						Libraries: types.Packages{
+							{
+								ID:      "certifi@2022.12.7",
+								Name:    "certifi",
+								Version: "2022.12.7",
+							},
+						},
+					},
 				},
-				configBlob: []byte("bar"),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{
-				FilePatterns:      tt.args.filePatterns,
-				DisabledAnalyzers: tt.args.disabledAnalyzers,
-			})
+			a, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{})
 			require.NoError(t, err)
-			got := a.AnalyzeImageConfig(tt.args.targetOS, tt.args.configBlob)
+
+			// Create a virtual filesystem
+			composite, err := analyzer.NewCompositeFS(analyzer.AnalyzerGroup{})
+			require.NoError(t, err)
+
+			mfs := mapfs.New()
+			require.NoError(t, mfs.CopyFilesUnder(tt.dir))
+			composite.Set(tt.analyzerType, mfs)
+
+			if tt.analyzerType == analyzer.TypeJar {
+				// init java-trivy-db with skip update
+				javadb.Init("./language/java/jar/testdata", "ghcr.io/aquasecurity/trivy-java-db", true, false, false)
+			}
+
+			ctx := context.Background()
+			got := new(analyzer.AnalysisResult)
+			err = a.PostAnalyze(ctx, composite, got, analyzer.AnalysisOptions{})
+			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestAnalyzer_AnalyzerVersions(t *testing.T) {
+func TestAnalyzerGroup_AnalyzerVersions(t *testing.T) {
 	tests := []struct {
 		name     string
 		disabled []analyzer.Type
-		want     map[string]int
+		want     analyzer.Versions
 	}{
 		{
 			name:     "happy path",
 			disabled: []analyzer.Type{},
-			want: map[string]int{
-				"alpine":   1,
-				"apk-repo": 1,
-				"apk":      2,
-				"bundler":  1,
-				"ubuntu":   1,
+			want: analyzer.Versions{
+				Analyzers: map[string]int{
+					"alpine":     1,
+					"apk-repo":   1,
+					"apk":        2,
+					"bundler":    1,
+					"ubuntu":     1,
+					"ubuntu-esm": 1,
+				},
+				PostAnalyzers: map[string]int{
+					"jar":    1,
+					"poetry": 1,
+				},
 			},
 		},
 		{
-			name:     "disable analyzers",
-			disabled: []analyzer.Type{analyzer.TypeAlpine, analyzer.TypeApkRepo, analyzer.TypeUbuntu},
-			want: map[string]int{
-				"apk":     2,
-				"bundler": 1,
+			name: "disable analyzers",
+			disabled: []analyzer.Type{
+				analyzer.TypeAlpine,
+				analyzer.TypeApkRepo,
+				analyzer.TypeUbuntu,
+				analyzer.TypeUbuntuESM,
+				analyzer.TypeJar,
+			},
+			want: analyzer.Versions{
+				Analyzers: map[string]int{
+					"apk":     2,
+					"bundler": 1,
+				},
+				PostAnalyzers: map[string]int{
+					"poetry": 1,
+				},
 			},
 		},
 	}
@@ -610,40 +678,6 @@ func TestAnalyzer_AnalyzerVersions(t *testing.T) {
 			require.NoError(t, err)
 			got := a.AnalyzerVersions()
 			fmt.Printf("%v\n", got)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestAnalyzer_ImageConfigAnalyzerVersions(t *testing.T) {
-	tests := []struct {
-		name     string
-		disabled []analyzer.Type
-		want     map[string]int
-	}{
-		{
-			name:     "happy path",
-			disabled: []analyzer.Type{},
-			want: map[string]int{
-				"apk-command": 1,
-				"test":        1,
-			},
-		},
-		{
-			name:     "disable analyzers",
-			disabled: []analyzer.Type{analyzer.TypeAlpine, analyzer.TypeApkCommand},
-			want: map[string]int{
-				"test": 1,
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{
-				DisabledAnalyzers: tt.disabled,
-			})
-			require.NoError(t, err)
-			got := a.ImageConfigAnalyzerVersions()
 			assert.Equal(t, tt.want, got)
 		})
 	}

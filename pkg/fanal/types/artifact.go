@@ -6,11 +6,11 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
 
-	aos "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os"
+	"github.com/aquasecurity/trivy/pkg/digest"
 )
 
 type OS struct {
-	Family string
+	Family OSType
 	Name   string
 	Eosl   bool `json:"EOSL,omitempty"`
 
@@ -32,7 +32,7 @@ func (o *OS) Merge(new OS) {
 	// OLE also has /etc/redhat-release and it detects OLE as RHEL by mistake.
 	// In that case, OS must be overwritten with the content of /etc/oracle-release.
 	// There is the same problem between Debian and Ubuntu.
-	case o.Family == aos.RedHat, o.Family == aos.Debian:
+	case o.Family == RedHat, o.Family == Debian:
 		*o = new
 	default:
 		if o.Family == "" {
@@ -51,7 +51,7 @@ func (o *OS) Merge(new OS) {
 }
 
 type Repository struct {
-	Family  string `json:",omitempty"`
+	Family  OSType `json:",omitempty"`
 	Release string `json:",omitempty"`
 }
 
@@ -68,6 +68,7 @@ type Package struct {
 	Release    string   `json:",omitempty"`
 	Epoch      int      `json:",omitempty"`
 	Arch       string   `json:",omitempty"`
+	Dev        bool     `json:",omitempty"`
 	SrcName    string   `json:",omitempty"`
 	SrcVersion string   `json:",omitempty"`
 	SrcRelease string   `json:",omitempty"`
@@ -89,6 +90,9 @@ type Package struct {
 
 	// Each package metadata have the file path, while the package from lock files does not have.
 	FilePath string `json:",omitempty"`
+
+	// This is required when using SPDX formats. Otherwise, it will be empty.
+	Digest digest.Digest `json:",omitempty"`
 
 	// lines from the lock file where the dependency is written
 	Locations []Location `json:",omitempty"`
@@ -130,6 +134,24 @@ func (pkgs Packages) Less(i, j int) bool {
 	return pkgs[i].FilePath < pkgs[j].FilePath
 }
 
+// ParentDeps returns a map where the keys are package IDs and the values are the packages
+// that depend on the respective package ID (parent dependencies).
+func (pkgs Packages) ParentDeps() map[string]Packages {
+	parents := make(map[string]Packages)
+	for _, pkg := range pkgs {
+		for _, dependOn := range pkg.DependsOn {
+			parents[dependOn] = append(parents[dependOn], pkg)
+		}
+	}
+
+	for k, v := range parents {
+		parents[k] = lo.UniqBy(v, func(pkg Package) string {
+			return pkg.ID
+		})
+	}
+	return parents
+}
+
 type SrcPackage struct {
 	Name        string   `json:"name"`
 	Version     string   `json:"version"`
@@ -143,13 +165,13 @@ type PackageInfo struct {
 
 type Application struct {
 	// e.g. bundler and pipenv
-	Type string
+	Type LangType
 
 	// Lock files have the file path here, while each package metadata do not have
 	FilePath string `json:",omitempty"`
 
 	// Libraries is a list of lang-specific packages
-	Libraries []Package
+	Libraries Packages
 }
 
 type File struct {
@@ -162,13 +184,13 @@ type File struct {
 type ArtifactType string
 
 const (
-	ArtifactContainerImage   ArtifactType = "container_image"
-	ArtifactFilesystem       ArtifactType = "filesystem"
-	ArtifactRemoteRepository ArtifactType = "repository"
-	ArtifactCycloneDX        ArtifactType = "cyclonedx"
-	ArtifactSPDX             ArtifactType = "spdx"
-	ArtifactAWSAccount       ArtifactType = "aws_account"
-	ArtifactVM               ArtifactType = "vm"
+	ArtifactContainerImage ArtifactType = "container_image"
+	ArtifactFilesystem     ArtifactType = "filesystem"
+	ArtifactRepository     ArtifactType = "repository"
+	ArtifactCycloneDX      ArtifactType = "cyclonedx"
+	ArtifactSPDX           ArtifactType = "spdx"
+	ArtifactAWSAccount     ArtifactType = "aws_account"
+	ArtifactVM             ArtifactType = "vm"
 )
 
 // ArtifactReference represents a reference of container image, local filesystem and repository
@@ -199,8 +221,14 @@ type ArtifactInfo struct {
 	DockerVersion string
 	OS            string
 
+	// Misconfiguration holds misconfiguration in container image config
+	Misconfiguration *Misconfiguration `json:",omitempty"`
+
+	// Secret holds secrets in container image config such as environment variables
+	Secret *Secret `json:",omitempty"`
+
 	// HistoryPackages are packages extracted from RUN instructions
-	HistoryPackages []Package `json:",omitempty"`
+	HistoryPackages Packages `json:",omitempty"`
 }
 
 // BlobInfo is stored in cache
@@ -243,12 +271,24 @@ type ArtifactDetail struct {
 	Secrets           []Secret           `json:",omitempty"`
 	Licenses          []LicenseFile      `json:",omitempty"`
 
-	// HistoryPackages are packages extracted from RUN instructions
-	HistoryPackages []Package `json:",omitempty"`
+	// ImageConfig has information from container image config
+	ImageConfig ImageConfigDetail
 
 	// CustomResources hold analysis results from custom analyzers.
 	// It is for extensibility and not used in OSS.
 	CustomResources []CustomResource `json:",omitempty"`
+}
+
+// ImageConfigDetail has information from container image config
+type ImageConfigDetail struct {
+	// Packages are packages extracted from RUN instructions in history
+	Packages []Package `json:",omitempty"`
+
+	// Misconfiguration holds misconfigurations in container image config
+	Misconfiguration *Misconfiguration `json:",omitempty"`
+
+	// Secret holds secrets in container image config
+	Secret *Secret `json:",omitempty"`
 }
 
 // ToBlobInfo is used to store a merged layer in cache.

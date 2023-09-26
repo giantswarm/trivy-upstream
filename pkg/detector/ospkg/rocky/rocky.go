@@ -38,7 +38,7 @@ func WithClock(clock clock.Clock) option {
 
 // Scanner implements the Rocky Linux scanner
 type Scanner struct {
-	vs rocky.VulnSrc
+	vs *rocky.VulnSrc
 	*options
 }
 
@@ -74,7 +74,7 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 			continue
 		}
 		pkgName := addModularNamespace(pkg.Name, pkg.Modularitylabel)
-		advisories, err := s.vs.Get(osVer, pkgName)
+		advisories, err := s.vs.Get(osVer, pkgName, pkg.Arch)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get Rocky Linux advisories: %w", err)
 		}
@@ -91,9 +91,10 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 					PkgName:          pkg.Name,
 					InstalledVersion: installed,
 					FixedVersion:     fixedVersion.String(),
-					Ref:              pkg.Ref,
+					PkgRef:           pkg.Ref,
 					Layer:            pkg.Layer,
 					DataSource:       adv.DataSource,
+					Custom:           adv.Custom,
 				}
 				vulns = append(vulns, vuln)
 			}
@@ -107,7 +108,7 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 }
 
 // IsSupportedVersion checks the OSFamily can be scanned using Rocky Linux scanner
-func (s *Scanner) IsSupportedVersion(osFamily, osVer string) bool {
+func (s *Scanner) IsSupportedVersion(osFamily ftypes.OSType, osVer string) bool {
 	if strings.Count(osVer, ".") > 0 {
 		osVer = osVer[:strings.Index(osVer, ".")]
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/wire"
 	"github.com/samber/lo"
@@ -14,63 +13,46 @@ import (
 	"golang.org/x/xerrors"
 
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
-	"github.com/aquasecurity/trivy/pkg/detector/library"
-	ospkgDetector "github.com/aquasecurity/trivy/pkg/detector/ospkg"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"
 	"github.com/aquasecurity/trivy/pkg/fanal/applier"
-	_ "github.com/aquasecurity/trivy/pkg/fanal/handler/all"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/licensing"
 	"github.com/aquasecurity/trivy/pkg/log"
+	"github.com/aquasecurity/trivy/pkg/scanner/langpkg"
+	"github.com/aquasecurity/trivy/pkg/scanner/ospkg"
 	"github.com/aquasecurity/trivy/pkg/scanner/post"
 	"github.com/aquasecurity/trivy/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/vulnerability"
-)
 
-var (
-	pkgTargets = map[string]string{
-		ftypes.PythonPkg: "Python",
-		ftypes.CondaPkg:  "Conda",
-		ftypes.GemSpec:   "Ruby",
-		ftypes.NodePkg:   "Node.js",
-		ftypes.Jar:       "Java",
-	}
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/handler/all"
 )
 
 // SuperSet binds dependencies for Local scan
 var SuperSet = wire.NewSet(
 	vulnerability.SuperSet,
 	applier.NewApplier,
-	wire.Bind(new(Applier), new(applier.Applier)),
-	wire.Struct(new(ospkgDetector.Detector)),
-	wire.Bind(new(OspkgDetector), new(ospkgDetector.Detector)),
+	ospkg.NewScanner,
+	langpkg.NewScanner,
 	NewScanner,
 )
 
-// Applier defines operation to scan image layers
-type Applier interface {
-	ApplyLayers(artifactID string, blobIDs []string) (detail ftypes.ArtifactDetail, err error)
-}
-
-// OspkgDetector defines operation to detect OS vulnerabilities
-type OspkgDetector interface {
-	Detect(imageName, osFamily, osName string, repo *ftypes.Repository, created time.Time, pkgs []ftypes.Package) (detectedVulns []types.DetectedVulnerability, eosl bool, err error)
-}
-
 // Scanner implements the OspkgDetector and LibraryDetector
 type Scanner struct {
-	applier       Applier
-	ospkgDetector OspkgDetector
-	vulnClient    vulnerability.Client
+	applier        applier.Applier
+	osPkgScanner   ospkg.Scanner
+	langPkgScanner langpkg.Scanner
+	vulnClient     vulnerability.Client
 }
 
 // NewScanner is the factory method for Scanner
-func NewScanner(applier Applier, ospkgDetector OspkgDetector, vulnClient vulnerability.Client) Scanner {
+func NewScanner(applier applier.Applier, osPkgScanner ospkg.Scanner, langPkgScanner langpkg.Scanner,
+	vulnClient vulnerability.Client) Scanner {
 	return Scanner{
-		applier:       applier,
-		ospkgDetector: ospkgDetector,
-		vulnClient:    vulnClient,
+		applier:        applier,
+		osPkgScanner:   osPkgScanner,
+		langPkgScanner: langPkgScanner,
+		vulnClient:     vulnClient,
 	}
 }
 
@@ -105,16 +87,20 @@ func (s Scanner) Scan(ctx context.Context, target, artifactKey string, blobKeys 
 	var eosl bool
 	var results, pkgResults types.Results
 
+	// By default, we need to remove dev dependencies from the result
+	// IncludeDevDeps option allows you not to remove them
+	excludeDevDeps(artifactDetail.Applications, options.IncludeDevDeps)
+
 	// Fill OS packages and language-specific packages
 	if options.ListAllPackages {
-		if res := s.osPkgsToResult(target, artifactDetail, options); res != nil {
-			pkgResults = append(pkgResults, *res)
+		if res := s.osPkgScanner.Packages(target, artifactDetail, options); len(res.Packages) != 0 {
+			pkgResults = append(pkgResults, res)
 		}
-		pkgResults = append(pkgResults, s.langPkgsToResult(artifactDetail)...)
+		pkgResults = append(pkgResults, s.langPkgScanner.Packages(artifactDetail, options)...)
 	}
 
 	// Scan packages for vulnerabilities
-	if slices.Contains(options.SecurityChecks, types.SecurityCheckVulnerability) {
+	if options.Scanners.Enabled(types.VulnerabilityScanner) {
 		var vulnResults types.Results
 		vulnResults, eosl, err = s.scanVulnerabilities(target, artifactDetail, options)
 		if err != nil {
@@ -132,21 +118,37 @@ func (s Scanner) Scan(ctx context.Context, target, artifactKey string, blobKeys 
 	}
 
 	// Scan IaC config files
-	if ShouldScanMisconfigOrRbac(options.SecurityChecks) {
+	if ShouldScanMisconfigOrRbac(options.Scanners) {
 		configResults := s.MisconfsToResults(artifactDetail.Misconfigurations)
 		results = append(results, configResults...)
 	}
 
 	// Scan secrets
-	if slices.Contains(options.SecurityChecks, types.SecurityCheckSecret) {
+	if options.Scanners.Enabled(types.SecretScanner) {
 		secretResults := s.secretsToResults(artifactDetail.Secrets)
 		results = append(results, secretResults...)
 	}
 
 	// Scan licenses
-	if slices.Contains(options.SecurityChecks, types.SecurityCheckLicense) {
+	if options.Scanners.Enabled(types.LicenseScanner) {
 		licenseResults := s.scanLicenses(artifactDetail, options.LicenseCategories)
 		results = append(results, licenseResults...)
+	}
+
+	// Scan misconfigurations on container image config
+	if options.ImageConfigScanners.Enabled(types.MisconfigScanner) {
+		if im := artifactDetail.ImageConfig.Misconfiguration; im != nil {
+			im.FilePath = target // Set the target name to the file path as container image config is not a real file.
+			results = append(results, s.MisconfsToResults([]ftypes.Misconfiguration{*im})...)
+		}
+	}
+
+	// Scan secrets on container image config
+	if options.ImageConfigScanners.Enabled(types.SecretScanner) {
+		if is := artifactDetail.ImageConfig.Secret; is != nil {
+			is.FilePath = target // Set the target name to the file path as container image config is not a real file.
+			results = append(results, s.secretsToResults([]ftypes.Secret{*is})...)
+		}
 	}
 
 	// For WASM plugins and custom analyzers
@@ -171,151 +173,30 @@ func (s Scanner) Scan(ctx context.Context, target, artifactKey string, blobKeys 
 	return results, artifactDetail.OS, nil
 }
 
-func (s Scanner) osPkgsToResult(target string, detail ftypes.ArtifactDetail, options types.ScanOptions) *types.Result {
-	if len(detail.Packages) == 0 || !detail.OS.Detected() {
-		return nil
-	}
-
-	pkgs := detail.Packages
-	if options.ScanRemovedPackages {
-		pkgs = mergePkgs(pkgs, detail.HistoryPackages)
-	}
-	sort.Sort(pkgs)
-	return &types.Result{
-		Target:   fmt.Sprintf("%s (%s %s)", target, detail.OS.Family, detail.OS.Name),
-		Class:    types.ClassOSPkg,
-		Type:     detail.OS.Family,
-		Packages: pkgs,
-	}
-}
-
-func (s Scanner) langPkgsToResult(detail ftypes.ArtifactDetail) types.Results {
-	var results types.Results
-	for _, app := range detail.Applications {
-		if len(app.Libraries) == 0 {
-			continue
-		}
-		target := app.FilePath
-		if t, ok := pkgTargets[app.Type]; ok && target == "" {
-			// When the file path is empty, we will overwrite it with the pre-defined value.
-			target = t
-		}
-
-		results = append(results, types.Result{
-			Target:   target,
-			Class:    types.ClassLangPkg,
-			Type:     app.Type,
-			Packages: app.Libraries,
-		})
-	}
-	return results
-}
-
 func (s Scanner) scanVulnerabilities(target string, detail ftypes.ArtifactDetail, options types.ScanOptions) (
 	types.Results, bool, error) {
 	var eosl bool
 	var results types.Results
 
 	if slices.Contains(options.VulnType, types.VulnTypeOS) {
-		result, detectedEosl, err := s.scanOSPkgs(target, detail, options)
+		vuln, detectedEOSL, err := s.osPkgScanner.Scan(target, detail, options)
 		if err != nil {
 			return nil, false, xerrors.Errorf("unable to scan OS packages: %w", err)
-		} else if result != nil {
-			results = append(results, *result)
+		} else if vuln.Target != "" {
+			results = append(results, vuln)
 		}
-		eosl = detectedEosl
+		eosl = detectedEOSL
 	}
 
 	if slices.Contains(options.VulnType, types.VulnTypeLibrary) {
-		libResults, err := s.scanLangPkgs(detail.Applications)
+		vulns, err := s.langPkgScanner.Scan(detail, options)
 		if err != nil {
 			return nil, false, xerrors.Errorf("failed to scan application libraries: %w", err)
 		}
-		results = append(results, libResults...)
+		results = append(results, vulns...)
 	}
 
 	return results, eosl, nil
-}
-
-func (s Scanner) scanOSPkgs(target string, detail ftypes.ArtifactDetail, options types.ScanOptions) (
-	*types.Result, bool, error) {
-	if !detail.OS.Detected() {
-		log.Logger.Debug("Detected OS: unknown")
-		return nil, false, nil
-	}
-	log.Logger.Infof("Detected OS: %s", detail.OS.Family)
-
-	pkgs := detail.Packages
-	if options.ScanRemovedPackages {
-		pkgs = mergePkgs(pkgs, detail.HistoryPackages)
-	}
-
-	if detail.OS.Extended {
-		// TODO: move the logic to each detector
-		detail.OS.Name += "-ESM"
-	}
-
-	vulns, eosl, err := s.ospkgDetector.Detect("", detail.OS.Family, detail.OS.Name, detail.Repository, time.Time{}, pkgs)
-	if err == ospkgDetector.ErrUnsupportedOS {
-		return nil, false, nil
-	} else if err != nil {
-		return nil, false, xerrors.Errorf("failed vulnerability detection of OS packages: %w", err)
-	}
-
-	artifactDetail := fmt.Sprintf("%s (%s %s)", target, detail.OS.Family, detail.OS.Name)
-	result := &types.Result{
-		Target:          artifactDetail,
-		Vulnerabilities: vulns,
-		Class:           types.ClassOSPkg,
-		Type:            detail.OS.Family,
-	}
-	return result, eosl, nil
-}
-
-func (s Scanner) scanLangPkgs(apps []ftypes.Application) (types.Results, error) {
-	log.Logger.Infof("Number of language-specific files: %d", len(apps))
-	if len(apps) == 0 {
-		return nil, nil
-	}
-
-	var results types.Results
-	printedTypes := map[string]struct{}{}
-	for _, app := range apps {
-		if len(app.Libraries) == 0 {
-			continue
-		}
-
-		// Prevent the same log messages from being displayed many times for the same type.
-		if _, ok := printedTypes[app.Type]; !ok {
-			log.Logger.Infof("Detecting %s vulnerabilities...", app.Type)
-			printedTypes[app.Type] = struct{}{}
-		}
-
-		log.Logger.Debugf("Detecting library vulnerabilities, type: %s, path: %s", app.Type, app.FilePath)
-		vulns, err := library.Detect(app.Type, app.Libraries)
-		if err != nil {
-			return nil, xerrors.Errorf("failed vulnerability detection of libraries: %w", err)
-		} else if len(vulns) == 0 {
-			continue
-		}
-
-		target := app.FilePath
-		if t, ok := pkgTargets[app.Type]; ok && target == "" {
-			// When the file path is empty, we will overwrite it with the pre-defined value.
-			target = t
-		}
-
-		results = append(results, types.Result{
-			Target:          target,
-			Vulnerabilities: vulns,
-			Class:           types.ClassLangPkg,
-			Type:            app.Type,
-		})
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Target < results[j].Target
-	})
-	return results, nil
 }
 
 func (s Scanner) fillPkgsInVulns(pkgResults, vulnResults types.Results) types.Results {
@@ -325,7 +206,7 @@ func (s Scanner) fillPkgsInVulns(pkgResults, vulnResults types.Results) types.Re
 	}
 	for _, result := range pkgResults {
 		if r, found := lo.Find(vulnResults, func(r types.Result) bool {
-			return r.Class == result.Class && r.Target == result.Target
+			return r.Class == result.Class && r.Target == result.Target && r.Type == result.Type
 		}); found {
 			r.Packages = result.Packages
 			results = append(results, r)
@@ -336,7 +217,7 @@ func (s Scanner) fillPkgsInVulns(pkgResults, vulnResults types.Results) types.Re
 	return results
 }
 
-// This function is exported for trivy-plugin-aqua purposes only
+// MisconfsToResults is exported for trivy-plugin-aqua purposes only
 func (s Scanner) MisconfsToResults(misconfs []ftypes.Misconfiguration) types.Results {
 	log.Logger.Infof("Detected config files: %d", len(misconfs))
 	var results types.Results
@@ -431,7 +312,7 @@ func (s Scanner) scanLicenses(detail ftypes.ArtifactDetail,
 		}
 
 		target := app.FilePath
-		if t, ok := pkgTargets[app.Type]; ok && target == "" {
+		if t, ok := langpkg.PkgTargets[app.Type]; ok && target == "" {
 			// When the file path is empty, we will overwrite it with the pre-defined value.
 			target = t
 		}
@@ -513,32 +394,29 @@ func toDetectedMisconfiguration(res ftypes.MisconfResult, defaultSeverity dbType
 		Layer:       layer,
 		Traces:      res.Traces,
 		CauseMetadata: ftypes.CauseMetadata{
-			Resource:  res.Resource,
-			Provider:  res.Provider,
-			Service:   res.Service,
-			StartLine: res.StartLine,
-			EndLine:   res.EndLine,
-			Code:      res.Code,
+			Resource:    res.Resource,
+			Provider:    res.Provider,
+			Service:     res.Service,
+			StartLine:   res.StartLine,
+			EndLine:     res.EndLine,
+			Code:        res.Code,
+			Occurrences: res.Occurrences,
 		},
 	}
 }
 
-func mergePkgs(pkgs, pkgsFromCommands []ftypes.Package) []ftypes.Package {
-	// pkg has priority over pkgsFromCommands
-	uniqPkgs := map[string]struct{}{}
-	for _, pkg := range pkgs {
-		uniqPkgs[pkg.Name] = struct{}{}
-	}
-	for _, pkg := range pkgsFromCommands {
-		if _, ok := uniqPkgs[pkg.Name]; ok {
-			continue
-		}
-		pkgs = append(pkgs, pkg)
-	}
-	return pkgs
+func ShouldScanMisconfigOrRbac(scanners types.Scanners) bool {
+	return scanners.AnyEnabled(types.MisconfigScanner, types.RBACScanner)
 }
 
-func ShouldScanMisconfigOrRbac(securityChecks []string) bool {
-	return slices.Contains(securityChecks, types.SecurityCheckConfig) ||
-		slices.Contains(securityChecks, types.SecurityCheckRbac)
+// excludeDevDeps removes development dependencies from the list of applications
+func excludeDevDeps(apps []ftypes.Application, include bool) {
+	if include {
+		return
+	}
+	for i := range apps {
+		apps[i].Libraries = lo.Filter(apps[i].Libraries, func(lib ftypes.Package, index int) bool {
+			return !lib.Dev
+		})
+	}
 }

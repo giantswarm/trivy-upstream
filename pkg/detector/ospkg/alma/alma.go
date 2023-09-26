@@ -38,7 +38,7 @@ func WithClock(clock clock.Clock) option {
 
 // Scanner implements the AlmaLinux scanner
 type Scanner struct {
-	vs alma.VulnSrc
+	vs *alma.VulnSrc
 	*options
 }
 
@@ -91,9 +91,10 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 					PkgName:          pkg.Name,
 					InstalledVersion: installed,
 					FixedVersion:     fixedVersion.String(),
-					Ref:              pkg.Ref,
+					PkgRef:           pkg.Ref,
 					Layer:            pkg.Layer,
 					DataSource:       adv.DataSource,
+					Custom:           adv.Custom,
 				}
 				vulns = append(vulns, vuln)
 			}
@@ -107,7 +108,7 @@ func (s *Scanner) Detect(osVer string, _ *ftypes.Repository, pkgs []ftypes.Packa
 }
 
 // IsSupportedVersion checks the OSFamily can be scanned using AlmaLinux scanner
-func (s *Scanner) IsSupportedVersion(osFamily, osVer string) bool {
+func (s *Scanner) IsSupportedVersion(osFamily ftypes.OSType, osVer string) bool {
 	if strings.Count(osVer, ".") > 0 {
 		osVer = osVer[:strings.Index(osVer, ".")]
 	}

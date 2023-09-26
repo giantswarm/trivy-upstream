@@ -9,7 +9,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/artifact"
 	aimage "github.com/aquasecurity/trivy/pkg/fanal/artifact/image"
 	flocal "github.com/aquasecurity/trivy/pkg/fanal/artifact/local"
-	"github.com/aquasecurity/trivy/pkg/fanal/artifact/remote"
+	"github.com/aquasecurity/trivy/pkg/fanal/artifact/repo"
 	"github.com/aquasecurity/trivy/pkg/fanal/artifact/sbom"
 	"github.com/aquasecurity/trivy/pkg/fanal/artifact/vm"
 	"github.com/aquasecurity/trivy/pkg/fanal/image"
@@ -34,7 +34,6 @@ var StandaloneSuperSet = wire.NewSet(
 
 // StandaloneDockerSet binds docker dependencies
 var StandaloneDockerSet = wire.NewSet(
-	wire.Value([]image.Option(nil)), // optional functions
 	image.NewContainerImage,
 	aimage.NewArtifact,
 	StandaloneSuperSet,
@@ -55,7 +54,7 @@ var StandaloneFilesystemSet = wire.NewSet(
 
 // StandaloneRepositorySet binds repository dependencies
 var StandaloneRepositorySet = wire.NewSet(
-	remote.NewArtifact,
+	repo.NewArtifact,
 	StandaloneSuperSet,
 )
 
@@ -91,7 +90,7 @@ var RemoteFilesystemSet = wire.NewSet(
 
 // RemoteRepositorySet binds repository dependencies for client/server mode
 var RemoteRepositorySet = wire.NewSet(
-	remote.NewArtifact,
+	repo.NewArtifact,
 	RemoteSuperSet,
 )
 
@@ -110,7 +109,6 @@ var RemoteVMSet = wire.NewSet(
 // RemoteDockerSet binds remote docker dependencies
 var RemoteDockerSet = wire.NewSet(
 	aimage.NewArtifact,
-	wire.Value([]image.Option(nil)), // optional functions
 	image.NewContainerImage,
 	RemoteSuperSet,
 )
@@ -136,7 +134,10 @@ type Driver interface {
 
 // NewScanner is the factory method of Scanner
 func NewScanner(driver Driver, ar artifact.Artifact) Scanner {
-	return Scanner{driver: driver, artifact: ar}
+	return Scanner{
+		driver:   driver,
+		artifact: ar,
+	}
 }
 
 // ScanArtifact scans the artifacts and returns results

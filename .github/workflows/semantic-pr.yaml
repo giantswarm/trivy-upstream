@@ -47,6 +47,7 @@ jobs:
 
             alpine
             wolfi
+            chainguard
             redhat
             alma
             rocky
@@ -69,9 +70,11 @@ jobs:
             java
             go
             c
-            c++
+            c\+\+
             elixir
             dart
+            swift
+            bitnami
 
             os
             lang
@@ -92,6 +95,7 @@ jobs:
             cyclonedx
             spdx
             purl
+            vex
 
             helm
             report

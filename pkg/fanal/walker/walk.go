@@ -5,14 +5,21 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
+
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
+	"github.com/aquasecurity/trivy/pkg/log"
 )
 
 var (
 	// These variables are exported so that a tool importing Trivy as a library can override these values.
 	AppDirs    = []string{".git"}
-	SystemDirs = []string{"proc", "sys", "dev"}
+	SystemDirs = []string{
+		"proc",
+		"sys",
+		"dev",
+	}
 )
 
 const (
@@ -53,7 +60,16 @@ func (w *walker) shouldSkipFile(filePath string) bool {
 	filePath = strings.TrimLeft(filePath, "/")
 
 	// skip files
-	return utils.StringInSlice(filePath, w.skipFiles)
+	for _, pattern := range w.skipFiles {
+		match, err := doublestar.Match(pattern, filePath)
+		if err != nil {
+			return false // return early if bad pattern
+		} else if match {
+			log.Logger.Debugf("Skipping file: %s", filePath)
+			return true
+		}
+	}
+	return false
 }
 
 func (w *walker) shouldSkipDir(dir string) bool {
@@ -66,8 +82,13 @@ func (w *walker) shouldSkipDir(dir string) bool {
 	}
 
 	// Skip system dirs and specified dirs (absolute path)
-	if utils.StringInSlice(dir, w.skipDirs) {
-		return true
+	for _, pattern := range w.skipDirs {
+		if match, err := doublestar.Match(pattern, dir); err != nil {
+			return false // return early if bad pattern
+		} else if match {
+			log.Logger.Debugf("Skipping directory: %s", dir)
+			return true
+		}
 	}
 
 	return false

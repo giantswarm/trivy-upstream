@@ -6,13 +6,10 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-
-	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
-
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 
 	"github.com/aquasecurity/tml"
-
+	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/types"
 )
 
@@ -34,7 +31,7 @@ type misconfigRenderer struct {
 }
 
 func NewMisconfigRenderer(result types.Result, severities []dbTypes.Severity, trace, includeNonFailures bool, ansi bool) *misconfigRenderer {
-	width, _, err := terminal.GetSize(0)
+	width, _, err := term.GetSize(0)
 	if err != nil || width == 0 {
 		width = 40
 	}
@@ -163,6 +160,21 @@ func (r *misconfigRenderer) renderCode(misconf types.DetectedMisconfiguration) {
 			}
 		}
 		r.printf(" <blue>%s%s\r\n", r.result.Target, lineInfo)
+		for i, occ := range misconf.CauseMetadata.Occurrences {
+			lineInfo := fmt.Sprintf("%d-%d", occ.Location.StartLine, occ.Location.EndLine)
+			if occ.Location.StartLine >= occ.Location.EndLine {
+				lineInfo = fmt.Sprintf("%d", occ.Location.StartLine)
+			}
+
+			r.printf(
+				" %s<dim>via </dim><italic>%s<dim>:%s (%s)\n",
+				strings.Repeat(" ", i+2),
+				occ.Filename,
+				lineInfo,
+				occ.Resource,
+			)
+		}
+
 		r.printSingleDivider()
 		for i, line := range lines {
 			if line.Truncated {
