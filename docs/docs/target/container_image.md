@@ -64,10 +64,10 @@ $ trivy image --scanners vuln [YOUR_IMAGE_NAME]
 ### Misconfigurations
 It is supported, but it is not useful in most cases.
 As mentioned [here](../scanner/misconfiguration/index.md), Trivy mainly supports Infrastructure as Code (IaC) files for misconfigurations.
-If your container image includes IaC files such as Kubernetes YAML files or Terraform files, you should enable this feature with `--scanners config`.
+If your container image includes IaC files such as Kubernetes YAML files or Terraform files, you should enable this feature with `--scanners misconfig`.
 
 ```
-$ trivy image --scanners config [YOUR_IMAGE_NAME]
+$ trivy image --scanners misconfig [YOUR_IMAGE_NAME]
 ```
 
 ### Secrets
@@ -107,17 +107,10 @@ The image config is converted into Dockerfile and Trivy handles it as Dockerfile
 See [here](../scanner/misconfiguration/index.md) for the detail of Dockerfile scanning.
 
 It is disabled by default.
-You can enable it with `--image-config-scanners config`.
+You can enable it with `--image-config-scanners misconfig`.
 
 ```
-$ trivy image --image-config-scanners config [YOUR_IMAGE_NAME]
-```
-
-If you just want to scan the image config, you can disable scanners with `--scanners none`.
-For example:
-
-```
-$ trivy image --scanners none --image-config-scanners config alpine:3.17.0
+$ trivy image --image-config-scanners misconfig [YOUR_IMAGE_NAME]
 ```
 
 <details>
@@ -161,6 +154,8 @@ See https://avd.aquasec.com/misconfig/ds026
 !!! tip
     You can see how each layer is created with `docker history`.
 
+The [AVD-DS-0016](https://avd.aquasec.com/misconfig/dockerfile/general/avd-ds-0016/) check is disabled for this scan type, see [issue](https://github.com/aquasecurity/trivy/issues/7368) for details.
+
 ### Secrets
 Trivy detects secrets on the configuration of container images.
 The image config is converted into JSON and Trivy scans the file for secrets.
@@ -169,13 +164,6 @@ See [here](../scanner/secret.md) for the detail.
 
 ```shell
 $ trivy image --image-config-scanners secret [YOUR_IMAGE_NAME]
-```
-
-If you just want to scan the image config, you can disable scanners with `--scanners none`.
-For example:
-
-```shell
-$ trivy image --scanners none --image-config-scanners secret vuln-image
 ```
 
 <details>
@@ -311,7 +299,7 @@ Trivy supports registries that comply with the following specifications.
 - [Docker Registry HTTP API V2](https://docs.docker.com/registry/spec/api/)
 - [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec)
 
-You can configure credentials with `docker login`.
+You can configure credentials with `trivy registry login`.
 See [here](../advanced/private-registries/index.md) for the detail.
 
 ### Tar Files
@@ -450,14 +438,14 @@ The following reports are available out of the box:
 
 | Compliance                             | Version | Name for command | More info                                                                                   |
 |----------------------------------------|---------|------------------|---------------------------------------------------------------------------------------------|
-| CIS Docker Community Edition Benchmark | 1.1.0   | `docker-cis`     | [Link](https://www.aquasec.com/cloud-native-academy/docker-container/docker-cis-benchmark/) |
+| CIS Docker Community Edition Benchmark | 1.1.0   | `docker-cis-1.6.0`     | [Link](https://www.aquasec.com/cloud-native-academy/docker-container/docker-cis-benchmark/) |
 
 ### Examples
 
 Scan a container image configuration and generate a compliance summary report:
 
 ```
-$ trivy image --compliance docker-cis [YOUR_IMAGE_NAME]
+trivy image --compliance docker-cis-1.6.0 [YOUR_IMAGE_NAME]
 ```
 
 !!! note
@@ -513,4 +501,11 @@ You can configure Docker daemon socket with `DOCKER_HOST` or `--docker-host`.
 
 ```shell
 $ trivy image --docker-host tcp://127.0.0.1:2375 YOUR_IMAGE
+```
+
+### Configure Podman daemon socket to connect to.
+You can configure Podman daemon socket with `--podman-host`.
+
+```shell
+$ trivy image --podman-host /run/user/1000/podman/podman.sock YOUR_IMAGE
 ```

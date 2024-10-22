@@ -30,7 +30,7 @@ type misconfigRenderer struct {
 	ansi               bool
 }
 
-func NewMisconfigRenderer(result types.Result, severities []dbTypes.Severity, trace, includeNonFailures bool, ansi bool) *misconfigRenderer {
+func NewMisconfigRenderer(result types.Result, severities []dbTypes.Severity, trace, includeNonFailures, ansi bool) *misconfigRenderer {
 	width, _, err := term.GetSize(0)
 	if err != nil || width == 0 {
 		width = 40
@@ -50,6 +50,11 @@ func NewMisconfigRenderer(result types.Result, severities []dbTypes.Severity, tr
 }
 
 func (r *misconfigRenderer) Render() string {
+	// Trivy doesn't currently support showing suppressed misconfigs
+	// So just skip this result
+	if len(r.result.Misconfigurations) == 0 {
+		return ""
+	}
 	target := fmt.Sprintf("%s (%s)", r.result.Target, r.result.Type)
 	RenderTarget(r.w, target, r.ansi)
 
@@ -72,16 +77,16 @@ func (r *misconfigRenderer) Render() string {
 }
 
 func (r *misconfigRenderer) countSeverities() map[string]int {
-	severityCount := map[string]int{}
+	severityCount := make(map[string]int)
 	for _, misconf := range r.result.Misconfigurations {
-		if misconf.Status == types.StatusFailure {
+		if misconf.Status == types.MisconfStatusFailure {
 			severityCount[misconf.Severity]++
 		}
 	}
 	return severityCount
 }
 
-func (r *misconfigRenderer) printf(format string, args ...interface{}) {
+func (r *misconfigRenderer) printf(format string, args ...any) {
 	// nolint
 	_ = tml.Fprintf(r.w, format, args...)
 }
@@ -110,11 +115,11 @@ func (r *misconfigRenderer) renderSummary(misconf types.DetectedMisconfiguration
 	// show pass/fail/exception unless we are only showing failures
 	if r.includeNonFailures {
 		switch misconf.Status {
-		case types.StatusPassed:
+		case types.MisconfStatusPassed:
 			r.printf("<green><bold>%s: ", misconf.Status)
-		case types.StatusFailure:
+		case types.MisconfStatusFailure:
 			r.printf("<red><bold>%s: ", misconf.Status)
-		case types.StatusException:
+		case types.MisconfStatusException:
 			r.printf("<yellow><bold>%s: ", misconf.Status)
 		}
 	}
@@ -177,9 +182,10 @@ func (r *misconfigRenderer) renderCode(misconf types.DetectedMisconfiguration) {
 
 		r.printSingleDivider()
 		for i, line := range lines {
-			if line.Truncated {
+			switch {
+			case line.Truncated:
 				r.printf("<dim>%4s   ", strings.Repeat(".", len(fmt.Sprintf("%d", line.Number))))
-			} else if line.IsCause {
+			case line.IsCause:
 				r.printf("<red>%4d ", line.Number)
 				switch {
 				case (line.FirstCause && line.LastCause) || len(lines) == 1:
@@ -191,9 +197,10 @@ func (r *misconfigRenderer) renderCode(misconf types.DetectedMisconfiguration) {
 				default:
 					r.printf("<red>│ ")
 				}
-			} else {
+			default:
 				r.printf("<dim>%4d   ", line.Number)
 			}
+
 			if r.ansi {
 				r.printf("%s\r\n", line.Highlighted)
 			} else {
@@ -215,7 +222,7 @@ func (r *misconfigRenderer) outputTrace() {
 		}
 
 		c := green
-		if misconf.Status == types.StatusFailure {
+		if misconf.Status == types.MisconfStatusFailure {
 			c = red
 		}
 
