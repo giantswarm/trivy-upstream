@@ -1,7 +1,6 @@
 name: "Stale PR's"
-on:
-  schedule:
-    - cron: '0 0 * * *'
+on: workflow_dispatch
+
 jobs:
   stale:
     timeout-minutes: 1

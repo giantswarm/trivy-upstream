@@ -1,8 +1,5 @@
 name: Cache test images
-on:
-  schedule:
-    - cron: "0 0 * * *" # Run this workflow every day at 00:00 to avoid cache deletion.
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   test-images:
