@@ -58,6 +58,7 @@ The following languages are currently supported:
 |          | [yarn.lock][yarn-lock]                     |
 | .NET     | [packages.lock.json][dotnet-packages-lock] |
 | Python   | [poetry.lock][poetry-lock]                 |
+|          | [uv.lock][uv-lock]                         |
 | Ruby     | [Gemfile.lock][gemfile-lock]               |
 | Rust     | [cargo-auditable binaries][cargo-binaries] |
 | Go       | [go.mod][go-mod]                           |
@@ -428,7 +429,7 @@ $ trivy convert --format table --severity CRITICAL result.json
 ```
 
 !!! note
-    JSON reports from "trivy aws" and "trivy k8s" are not yet supported.
+    JSON reports from "trivy k8s" are not yet supported.
 
 [cargo-auditable]: https://github.com/rust-secure-code/cargo-auditable/
 [action]: https://github.com/aquasecurity/trivy-action
@@ -449,9 +450,10 @@ $ trivy convert --format table --severity CRITICAL result.json
 [yarn-lock]: ../coverage/language/nodejs.md#yarn
 [dotnet-packages-lock]: ../coverage/language/dotnet.md#packageslockjson
 [poetry-lock]: ../coverage/language/python.md#poetry
+[uv-lock]: ../coverage/language/python.md#uv
 [gemfile-lock]: ../coverage/language/ruby.md#bundler
-[go-mod]: ../coverage/language/golang.md#go-modules
-[composer-lock]: ../coverage/language/php.md#composer
+[go-mod]: ../coverage/language/golang.md#go-module
+[composer-lock]: ../coverage/language/php.md#composerlock
 [pom-xml]: ../coverage/language/java.md#pomxml
 [gradle-lockfile]: ../coverage/language/java.md#gradlelock
 [sbt-lockfile]: ../coverage/language/java.md#sbt
