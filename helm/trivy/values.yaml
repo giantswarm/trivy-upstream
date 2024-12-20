@@ -56,6 +56,11 @@ tolerations: []
 ## Ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}
 
+# Allow Trivy to download the database before being killed. In some cases the conection to gsoci can be slow and take longer than the default
+# Maybe we can remove this once we have Zot
+livenessProbe:
+  initialDelaySeconds: 300
+
 trivy:
   # debugMode the flag to enable Trivy debug mode
   debugMode: false
