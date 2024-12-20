@@ -624,7 +624,7 @@ func NewServerCommand(globalFlags *flag.GlobalFlagGroup) *cobra.Command {
 	// java-db only works on client side.
 	serverFlags.DBFlagGroup.DownloadJavaDBOnly = nil // disable '--download-java-db-only'
 	serverFlags.DBFlagGroup.SkipJavaDBUpdate = nil   // disable '--skip-java-db-update'
-	serverFlags.DBFlagGroup.JavaDBRepository = nil   // disable '--java-db-repository'
+	serverFlags.DBFlagGroup.JavaDBRepositories = nil // disable '--java-db-repository'
 
 	cmd := &cobra.Command{
 		Use:     "server [flags]",
@@ -1143,10 +1143,10 @@ func NewSBOMCommand(globalFlags *flag.GlobalFlagGroup) *cobra.Command {
 		CacheFlagGroup:         flag.NewCacheFlagGroup(),
 		DBFlagGroup:            flag.NewDBFlagGroup(),
 		PackageFlagGroup:       flag.NewPackageFlagGroup(),
-		RemoteFlagGroup:        flag.NewClientFlags(), // for client/server mode
+		RemoteFlagGroup:        flag.NewClientFlags(),       // for client/server mode
+		RegistryFlagGroup:      flag.NewRegistryFlagGroup(), // for DBs in private registries
 		ReportFlagGroup:        reportFlagGroup,
 		ScanFlagGroup:          scanFlagGroup,
-		SBOMFlagGroup:          flag.NewSBOMFlagGroup(),
 		VulnerabilityFlagGroup: flag.NewVulnerabilityFlagGroup(),
 		LicenseFlagGroup:       licenseFlagGroup,
 	}
